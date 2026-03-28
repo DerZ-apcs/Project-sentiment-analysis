@@ -7,6 +7,13 @@ from typing import Any, Dict, List, Optional, Tuple
 import streamlit as st
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def artifact_path(*parts: str) -> str:
+    return os.path.join(BASE_DIR, *parts)
+
+
 @dataclass
 class Predictor:
     name: str
@@ -121,27 +128,68 @@ def build_registry(models_obj: Any, vectorizers_obj: Any) -> Dict[str, Predictor
 
 
 def get_predictor_registry() -> Dict[str, Predictor]:
-    model_candidates = [
-        "model.pkl",
-        "models/model.pkl",
-        "artifacts/model.pkl",
+    registry: Dict[str, Predictor] = {}
+
+    # Load from pkl/ directory with specific naming
+    model_pairs = [
+        (
+            artifact_path("pkl", "lr_bow_model.pkl"),
+            artifact_path("pkl", "bow_vectorizer.pkl"),
+            "Logistic Regression + Bag of Words",
+        ),
+        (
+            artifact_path("pkl", "lr_tfidf_model.pkl"),
+            artifact_path("pkl", "tfidf_vectorizer.pkl"),
+            "Logistic Regression + TF-IDF",
+        ),
+        (
+            artifact_path("pkl", "nb_bow_model.pkl"),
+            artifact_path("pkl", "bow_vectorizer.pkl"),
+            "Multinomial NB + Bag of Words",
+        ),
+        (
+            artifact_path("pkl", "nb_tfidf_model.pkl"),
+            artifact_path("pkl", "tfidf_vectorizer.pkl"),
+            "Multinomial NB + TF-IDF",
+        ),
     ]
-    vectorizer_candidates = [
-        "vectorize.pkl",
-        "vectorizer.pkl",
-        "models/vectorize.pkl",
-        "models/vectorizer.pkl",
-        "artifacts/vectorize.pkl",
-        "artifacts/vectorizer.pkl",
-    ]
 
-    models_obj = load_pickle_if_exists(model_candidates)
-    vectorizers_obj = load_pickle_if_exists(vectorizer_candidates)
+    for model_path, vec_path, display_name in model_pairs:
+        if os.path.exists(model_path) and os.path.exists(vec_path):
+            try:
+                with open(model_path, "rb") as f:
+                    model = pickle.load(f)
+                with open(vec_path, "rb") as f:
+                    vectorizer = pickle.load(f)
+                registry[display_name] = Predictor(
+                    name=display_name, model=model, vectorizer=vectorizer
+                )
+            except Exception as e:
+                st.warning(f"Failed to load {display_name}: {e}")
 
-    if models_obj is None:
-        return {}
+    # Fallback to legacy single file loading
+    if not registry:
+        model_candidates = [
+            artifact_path("model.pkl"),
+            artifact_path("models", "model.pkl"),
+            artifact_path("artifacts", "model.pkl"),
+        ]
+        vectorizer_candidates = [
+            artifact_path("vectorize.pkl"),
+            artifact_path("vectorizer.pkl"),
+            artifact_path("models", "vectorize.pkl"),
+            artifact_path("models", "vectorizer.pkl"),
+            artifact_path("artifacts", "vectorize.pkl"),
+            artifact_path("artifacts", "vectorizer.pkl"),
+        ]
 
-    return build_registry(models_obj, vectorizers_obj)
+        models_obj = load_pickle_if_exists(model_candidates)
+        vectorizers_obj = load_pickle_if_exists(vectorizer_candidates)
+
+        if models_obj is not None:
+            registry = build_registry(models_obj, vectorizers_obj)
+
+    return registry
 
 
 def mock_predict() -> str:
@@ -152,22 +200,22 @@ def render_app() -> None:
     st.set_page_config(page_title="Sentiment Demo UI", page_icon="💬", layout="centered")
 
     st.title("Sentiment Demo UI")
-    st.caption("Mock predict nhanh hoặc test model thật từ file pkl")
+    st.caption("Mock predict nhanh hoặc test model Logistic Regression/Naive Bayes từ thư mục pkl")
 
     with st.sidebar:
         st.header("Mode")
         mode = st.radio(
             "Choose prediction mode",
-            options=["Mock predict (random)", "Use model.pkl + vectorize.pkl"],
+            options=["Mock predict (random)", "Use pkl models (LogReg/NB + BoW/TF-IDF)"],
         )
 
     registry = get_predictor_registry()
 
     selected_predictor = None
-    if mode == "Use model.pkl + vectorize.pkl":
+    if mode == "Use pkl models (LogReg/NB + BoW/TF-IDF)":
         if not registry:
             st.warning(
-                "Khong tim thay model/vectorizer hop le. App se fallback ve mock predict."
+                "Khong tim thay file trong pkl/. App se fallback ve mock predict."
             )
             mode = "Mock predict (random)"
         else:
@@ -176,20 +224,20 @@ def render_app() -> None:
             st.success(f"Loaded: {selected_name}")
 
     text = st.text_area(
-        "Nhap text de du doan sentiment",
-        placeholder="Vi du: San pham nay rat tot va giao hang nhanh.",
+        "Input text for sentiment prediction",
+        placeholder="Example: This product is great and the delivery is fast.",
         height=140,
     )
 
     if st.button("Predict", use_container_width=True):
         if not text.strip():
-            st.error("Vui long nhap noi dung truoc khi predict.")
+            st.error("Please enter some text before predicting.")
             return
 
         if mode == "Mock predict (random)":
             label = mock_predict()
             st.subheader(f"Prediction: {label}")
-            st.info("Dang o che do mock: ket qua random Positive/Negative.")
+            st.info("Currently in mock mode: results are random Positive/Negative.")
             return
 
         assert selected_predictor is not None
