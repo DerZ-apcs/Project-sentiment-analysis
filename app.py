@@ -56,7 +56,7 @@ def inject_theme() -> None:
             --accent-2: #22d3ee;
             --text: #f8fafc;
             --muted: #cbd5f5;
-        }s
+        }
 
         html, body, [data-testid="stAppViewContainer"] {
             background: radial-gradient(1200px 600px at 20% -10%, #3b0764 0%, transparent 55%),
@@ -193,7 +193,7 @@ def main():
         """
         <div class="card">
             <strong>How it works</strong><br/>
-            Choose a model setup, paste a review, and get the sentiment with confidence.
+            Paste a review, then compare predictions from four model setups.
         </div>
         """,
         unsafe_allow_html=True,
@@ -202,8 +202,8 @@ def main():
     if not registry:
         st.error("No models found. Please run the training cells first.")
         return
-    model_choice = st.selectbox("Select Model Configuration", list(registry.keys()))
-    predictor = registry[model_choice]
+    model_names = list(registry.keys())
+    predictors = [registry[name] for name in model_names]
     user_input = st.text_area(
         "Review Text:",
         "I absolutely loved this movie!",
@@ -215,27 +215,34 @@ def main():
 
     if action:
         if user_input.strip():
-            label, conf = predictor.predict(user_input)
-            st.session_state["last_result"] = (label, conf)
+            results = {}
+            for predictor in predictors:
+                results[predictor.name] = predictor.predict(user_input)
+            st.session_state["last_results"] = results
         else:
             st.warning("Please enter some text.")
 
-    if "last_result" in st.session_state:
-        label, conf = st.session_state["last_result"]
-        pill_class = "result-pill" if label == "Positive" else "result-pill negative"
-        emoji = "✅" if label == "Positive" else "⚠️"
-        conf_text = f"{conf:.2%}" if conf is not None else "N/A"
-        st.markdown(
-            f"""
-            <div class="card">
-                <div class="{pill_class}">{emoji} Result: {label}</div>
-                <div style="margin-top: 10px; color: var(--muted);">
-                    Confidence: {conf_text}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    if "last_results" in st.session_state:
+        results = st.session_state["last_results"]
+        cols = st.columns(2)
+        for idx, name in enumerate(model_names):
+            label, conf = results.get(name, ("N/A", None))
+            pill_class = "result-pill" if label == "Positive" else "result-pill negative"
+            emoji = "✅" if label == "Positive" else "⚠️"
+            conf_text = f"{conf:.2%}" if conf is not None else "N/A"
+            with cols[idx % 2]:
+                st.markdown(
+                    f"""
+                    <div class="card">
+                        <div style="margin-bottom: 8px; font-weight: 600;">{name}</div>
+                        <div class="{pill_class}">{emoji} Result: {label}</div>
+                        <div style="margin-top: 10px; color: var(--muted);">
+                            Confidence: {conf_text}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
 if __name__ == '__main__':
     main()
